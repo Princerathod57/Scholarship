@@ -1,0 +1,436 @@
+// Student Scholarship and Grant Management System Schema
+// Educational Institution Management System
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+// Enums
+enum UserRole {
+  ADMIN
+  FINANCIAL_AID_OFFICER
+  STUDENT
+  FACULTY
+}
+
+enum DisbursementMethod {
+  DIRECT_DEPOSIT
+  CHECK
+}
+
+enum ApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  UNDER_REVIEW
+}
+
+enum AwardStatus {
+  ACTIVE
+  DISBURSED
+  CANCELLED
+  PARTIALLY_DISBURSED
+}
+
+enum ScholarshipStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum ProgramStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ScholarshipCategory {
+  MERIT_BASED
+  NEED_BASED
+  ATHLETIC
+  DEPARTMENTAL
+  ALUMNI
+  RESEARCH
+  DIVERSITY
+  OTHER
+}
+
+enum RecommendationStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  APPROVE
+  REJECT
+  DISBURSE
+}
+
+// Core Models
+model Permission {
+  id          String @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  description String
+  code        String @unique
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  userPermissions UserPermission[]
+
+  @@map("permissions")
+}
+
+model User {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  name           String
+  email          String   @unique
+  password       String
+  role           UserRole
+  printName      String?  @map("print_name")
+  phone          String?
+  whatsapp       String?
+  address        String?
+  isFirstLogin   Boolean  @default(true) @map("is_first_login")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  permissions         UserPermission[]
+  createdDisbursements Disbursement[] @relation("CreatedByDisbursement")
+  createdApplications Application[] @relation("CreatedByApplication")
+  auditLogs           AuditLog[]
+  student             Student?
+  faculty             Faculty?
+  sentMessages        Message[] @relation("SentMessages")
+  receivedMessages    Message[] @relation("ReceivedMessages")
+
+  @@map("users")
+}
+
+model UserPermission {
+  id           String @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String @map("user_id") @db.ObjectId
+  permissionId String @map("permission_id") @db.ObjectId
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, permissionId])
+  @@map("user_permissions")
+}
+
+model Student {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String   @unique @map("user_id") @db.ObjectId
+  studentId   String   @unique @map("student_id") // Institutional student ID
+  programId   String?  @map("program_id") @db.ObjectId
+  gpa         Float?   // Grade Point Average
+  enrollmentDate DateTime? @map("enrollment_date")
+  graduationDate DateTime? @map("graduation_date")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  program      Program?     @relation(fields: [programId], references: [id])
+  applications Application[]
+  awards       Award[]
+  bankAccounts BankAccount[]
+  recommendations Recommendation[]
+
+  @@map("students")
+}
+
+model Faculty {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String   @unique @map("user_id") @db.ObjectId
+  facultyId    String   @unique @map("faculty_id")
+  department   String?
+  position     String?  // Professor, Associate Professor, etc.
+  hireDate     DateTime? @map("hire_date")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recommendations Recommendation[]
+
+  @@map("faculty")
+}
+
+model Recommendation {
+  id            String               @id @default(auto()) @map("_id") @db.ObjectId
+  facultyId     String               @map("faculty_id") @db.ObjectId
+  studentId     String               @map("student_id") @db.ObjectId
+  applicationId String?              @map("application_id") @db.ObjectId
+  scholarshipId String?              @map("scholarship_id") @db.ObjectId
+  title         String               // e.g., "Recommendation for Academic Excellence Scholarship"
+  content       String               // The actual recommendation letter content
+  status        RecommendationStatus @default(DRAFT)
+  submittedAt   DateTime?            @map("submitted_at")
+  createdAt     DateTime             @default(now()) @map("created_at")
+  updatedAt     DateTime             @updatedAt @map("updated_at")
+
+  // Relations
+  faculty     Faculty      @relation(fields: [facultyId], references: [id])
+  student     Student      @relation(fields: [studentId], references: [id])
+  application Application? @relation(fields: [applicationId], references: [id])
+  scholarship Scholarship? @relation(fields: [scholarshipId], references: [id])
+
+  @@map("recommendations")
+}
+
+model Program {
+  id          String        @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  description String?
+  code        String        @unique // e.g., "CS", "BIO", "ENG"
+  department  String?
+  status      ProgramStatus @default(ACTIVE)
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  // Relations
+  students     Student[]
+  funds        Fund[]
+  scholarships Scholarship[]
+
+  @@map("programs")
+}
+
+model Fund {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  description String?
+  programId   String   @map("program_id") @db.ObjectId
+  totalAmount Float    @map("total_amount") // Total fund amount
+  availableAmount Float @map("available_amount") // Available for new awards
+  committedAmount Float @default(0) @map("committed_amount") // Awarded but not disbursed
+  disbursedAmount Float @default(0) @map("disbursed_amount") // Actually disbursed
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  program      Program      @relation(fields: [programId], references: [id])
+  scholarships Scholarship[]
+  awards       Award[]
+
+  @@map("funds")
+}
+
+model Scholarship {
+  id          String            @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  description String?
+  category    ScholarshipCategory
+  amount      Float             // Scholarship amount (can be fixed or variable)
+  isVariableAmount Boolean       @default(false) @map("is_variable_amount")
+  minAmount   Float?            @map("min_amount")
+  maxAmount   Float?            @map("max_amount")
+  fundId      String            @map("fund_id") @db.ObjectId
+  programId   String?           @map("program_id") @db.ObjectId
+  requirements String?          // Eligibility requirements
+  applicationDeadline DateTime? @map("application_deadline")
+  status      ScholarshipStatus @default(ACTIVE)
+  isRenewable Boolean          @default(false) @map("is_renewable")
+  maxRenewals Int?             @map("max_renewals")
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  // Relations
+  fund         Fund          @relation(fields: [fundId], references: [id])
+  program      Program?      @relation(fields: [programId], references: [id])
+  applications Application[]
+  recommendations Recommendation[]
+
+  @@map("scholarships")
+}
+
+model Application {
+  id            String            @id @default(auto()) @map("_id") @db.ObjectId
+  applicationId String            @unique @map("application_id") // Generated ID like APP-2024-001
+  studentId     String            @map("student_id") @db.ObjectId
+  scholarshipId String            @map("scholarship_id") @db.ObjectId
+  status        ApplicationStatus @default(PENDING)
+  appliedAmount Float?            @map("applied_amount") // If scholarship allows variable amounts
+  essay         String?           // Application essay
+  reviewNotes   String?           @map("review_notes")
+  reviewedBy    String?           @map("reviewed_by") @db.ObjectId
+  reviewedAt    DateTime?         @map("reviewed_at")
+  createdBy     String?           @map("created_by") @db.ObjectId
+  submittedAt   DateTime?         @map("submitted_at")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+
+  // Relations
+  student     Student      @relation(fields: [studentId], references: [id])
+  scholarship Scholarship  @relation(fields: [scholarshipId], references: [id])
+  creator     User?        @relation("CreatedByApplication", fields: [createdBy], references: [id])
+  documents   Document[]
+  award       Award?       // If approved, creates an award
+  recommendations Recommendation[]
+
+  @@map("applications")
+}
+
+model Award {
+  id            String      @id @default(auto()) @map("_id") @db.ObjectId
+  awardId       String      @unique @map("award_id") // Generated ID like AWD-2024-001
+  applicationId String      @unique @map("application_id") @db.ObjectId
+  studentId     String      @map("student_id") @db.ObjectId
+  scholarshipId String      @map("scholarship_id") @db.ObjectId
+  fundId        String      @map("fund_id") @db.ObjectId
+  awardedAmount Float       @map("awarded_amount")
+  remainingBalance Float    @map("remaining_balance") // Amount left to disburse
+  status        AwardStatus @default(ACTIVE)
+  awardDate     DateTime    @map("award_date")
+  expiryDate    DateTime?   @map("expiry_date")
+  terms         String?     // Terms and conditions
+  isMultiTerm   Boolean     @default(false) @map("is_multi_term")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  // Relations
+  application   Application    @relation(fields: [applicationId], references: [id])
+  student       Student        @relation(fields: [studentId], references: [id])
+  fund          Fund           @relation(fields: [fundId], references: [id])
+  disbursements Disbursement[]
+
+  @@map("awards")
+}
+
+model Disbursement {
+  id                       String             @id @default(auto()) @map("_id") @db.ObjectId
+  disbursementId           String             @unique @map("disbursement_id") // Generated ID like DIS-2024-001
+  awardId                  String             @map("award_id") @db.ObjectId
+  amount                   Float
+  method                   DisbursementMethod
+  studentBankAccountId     String?            @map("student_bank_account_id") @db.ObjectId
+  institutionBankAccountId String?            @map("institution_bank_account_id") @db.ObjectId
+  checkNumber              String?            @map("check_number")
+  reference                String?            // Reference number or transaction ID
+  notes                    String?
+  disbursementDate         DateTime           @map("disbursement_date")
+  createdBy                String             @map("created_by") @db.ObjectId
+  createdAt                DateTime           @default(now()) @map("created_at")
+  updatedAt                DateTime           @updatedAt @map("updated_at")
+
+  // Relations
+  award                    Award       @relation(fields: [awardId], references: [id])
+  studentBankAccount       BankAccount? @relation("StudentBankAccount", fields: [studentBankAccountId], references: [id])
+  institutionBankAccount   BankAccount? @relation("InstitutionBankAccount", fields: [institutionBankAccountId], references: [id])
+  creator                  User        @relation("CreatedByDisbursement", fields: [createdBy], references: [id])
+  documents                Document[]
+
+  @@map("disbursements")
+}
+
+model BankAccount {
+  id            String  @id @default(auto()) @map("_id") @db.ObjectId
+  bankName      String  @map("bank_name")
+  accountNumber String  @map("account_number")
+  routingNumber String? @map("routing_number")
+  branchName    String? @map("branch_name")
+  accountType   String? @map("account_type") // Checking, Savings, etc.
+  isInstitutional Boolean @default(false) @map("is_institutional") // Institution's account vs student's account
+  studentId     String? @map("student_id") @db.ObjectId
+  isDefault     Boolean @default(false) @map("is_default")
+  isActive      Boolean @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  student                     Student?       @relation(fields: [studentId], references: [id])
+  studentDisbursements        Disbursement[] @relation("StudentBankAccount")
+  institutionDisbursements    Disbursement[] @relation("InstitutionBankAccount")
+
+  @@map("bank_accounts")
+}
+
+model Document {
+  id               String        @id @default(auto()) @map("_id") @db.ObjectId
+  fileName         String        @map("file_name")
+  originalFileName String        @map("original_file_name")
+  fileUrl          String        @map("file_url")
+  fileSize         Int?          @map("file_size")
+  mimeType         String?       @map("mime_type")
+  description      String?
+  applicationId    String?       @map("application_id") @db.ObjectId
+  disbursementId   String?       @map("disbursement_id") @db.ObjectId
+  uploadedBy       String        @map("uploaded_by") @db.ObjectId
+  createdAt        DateTime      @default(now()) @map("created_at")
+
+  // Relations
+  application  Application?  @relation(fields: [applicationId], references: [id])
+  disbursement Disbursement? @relation(fields: [disbursementId], references: [id])
+
+  @@map("documents")
+}
+
+model Series {
+  id          String  @id @default(auto()) @map("_id") @db.ObjectId
+  name        String  @unique // e.g., "Application Series", "Award Series", "Disbursement Series"
+  prefix      String  @unique
+  description String?
+  isDefault   Boolean @default(false) @map("is_default")
+  lastNumber  Int     @default(0) @map("last_number")
+  format      String? // e.g., "{prefix}-{year}-{number:3}" -> "APP-2024-001"
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("series")
+}
+
+model AuditLog {
+  id         String      @id @default(auto()) @map("_id") @db.ObjectId
+  userId     String      @map("user_id") @db.ObjectId
+  action     AuditAction
+  entityType String      @map("entity_type")
+  entityId   String      @map("entity_id")
+  details    Json
+  ipAddress  String?     @map("ip_address")
+  userAgent  String?     @map("user_agent")
+  timestamp  DateTime    @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
+
+enum MessageType {
+  GENERAL
+  SCHOLARSHIP_UPDATE
+  APPLICATION_UPDATE
+}
+
+model Message {
+  id          String      @id @default(auto()) @map("_id") @db.ObjectId
+  senderId    String      @map("sender_id") @db.ObjectId
+  recipientId String      @map("recipient_id") @db.ObjectId
+  subject     String
+  content     String
+  type        MessageType @default(GENERAL)
+  read        Boolean     @default(false)
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  // Relations
+  sender    User @relation("SentMessages", fields: [senderId], references: [id])
+  recipient User @relation("ReceivedMessages", fields: [recipientId], references: [id])
+
+  @@map("messages")
+}
